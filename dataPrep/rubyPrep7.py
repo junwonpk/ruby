@@ -38,10 +38,10 @@ def split2ndTop(links, topOutFilename):
 def splitData(inLinks):
     print "Splitting in Train, Dev, Test"
 
-    # OutputDicts
-    outTrain = {}
-    outDev = {}
-    outTest = {}
+    # Output
+    outTrain = []
+    outDev = []
+    outTest = []
 
     # 80-10-10
     probTrain = 0.8
@@ -50,34 +50,62 @@ def splitData(inLinks):
     for i, link in enumerate(inLinks, 1):
         randNum = random.random()
         if randNum < probTrain:
-            outTrain[link["i"]] = link
+            outTrain.append(link)
         elif randNum < probDev:
-            outDev[link["i"]] = link
+            outDev.append(link)
         else:
-            outTest[link["i"]] = link
+            outTest.append(link)
 
         if i % 100000 == 0:
             print "Processed {} lines".format(i)
     return outTrain, outDev, outTest
 
-def removeParents(train, dev, test):
-    print "Removing parents of train from dev and test"
+def removeParents(links):
+    print "Shuffling links"
+    random.shuffle(links)
 
-    for i, (_, link) in enumerate(train.iteritems(), 1):
-        parentId = link["p"]
-        parentId = parentId[3:]
-        if parentId in dev:
-            del dev[parentId]
-        if parentId in test:
-            del test[parentId]
+    print "Making sure no parents of comments tested are not tested"
+    parentCache = {}
+    linkCache = {}
+    newLinks = []
+    for i, link in enumerate(links):
+        if link["c"] == 0 and random.randint(1, 100) > 52:
+            continue
+        if link["c"] == 1 and random.randint(1, 100) > 75:
+            continue
+        if link["c"] == 2 and random.randint(1, 100) > 90:
+            continue
+        linkId = link["i"]
+        parentId = link["p"][3:]
+        if linkId in parentCache or parentId in linkCache:
+            continue
+        linkCache[linkId] = 1
+        parentCache[parentId] = 1
+        newLinks.append(link)
 
         if i % 100000 == 0:
-            print "Processed {} lines".format(i)
+            print "Processed {} links".format(i)
+
+    return newLinks
+
+# def removeParents(train, dev, test):
+#     print "Removing parents of train from dev and test"
+# 
+#     for i, (_, link) in enumerate(train.iteritems(), 1):
+#         parentId = link["p"]
+#         parentId = parentId[3:]
+#         if parentId in dev:
+#             del dev[parentId]
+#         if parentId in test:
+#             del test[parentId]
+# 
+#         if i % 100000 == 0:
+#             print "Processed {} lines".format(i)
 
 def writeToFile(links, outFilename):
-    print "Writing to {} links to {}".format(len(links), outFilename)
+    print "Writing {} links to {}".format(len(links), outFilename)
     with open(outFilename, "w") as outFile:
-        for i, (_, link) in enumerate(links.iteritems(), 1):
+        for i, link in enumerate(links, 1):
             outFile.write(json.dumps(link) + "\n")
 
             if i % 100000 == 0:
@@ -86,8 +114,8 @@ def writeToFile(links, outFilename):
 if __name__ == "__main__":
     links = loadLinks(sys.argv[1] + "/RedditAll")
     sndLinks = split2ndTop(links, sys.argv[1] + "/RedditTop")
+    sndLinks = removeParents(sndLinks)
     train, dev, test = splitData(sndLinks)
-    removeParents(train, dev, test)
     writeToFile(train, sys.argv[1] + "/Reddit2ndTrain")
     writeToFile(dev, sys.argv[1] + "/Reddit2ndDev")
     writeToFile(test, sys.argv[1] + "/Reddit2ndTest")

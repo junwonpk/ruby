@@ -29,11 +29,11 @@ def writeComments(inFilename, links, outFilename):
                 print "Processed {} lines".format(i)
 
 if __name__ == "__main__":
-    # links = loadLinks(sys.argv[1] + "/Reddit2ndTrain")
-    # writeComments(sys.argv[2] + "/RedditAll", links, sys.argv[3] + "/Reddit2ndTrain")
+    links = loadLinks(sys.argv[1] + "/Reddit2ndTrain")
+    writeComments(sys.argv[2] + "/RedditAll", links, sys.argv[3] + "/Reddit2ndTrain")
 
-    # links = loadLinks(sys.argv[1] + "/Reddit2ndDev")
-    # writeComments(sys.argv[2] + "/RedditAll", links, sys.argv[3] + "/Reddit2ndDev")
+    links = loadLinks(sys.argv[1] + "/Reddit2ndDev")
+    writeComments(sys.argv[2] + "/RedditAll", links, sys.argv[3] + "/Reddit2ndDev")
 
     links = loadLinks(sys.argv[1] + "/Reddit2ndTest")
     writeComments(sys.argv[2] + "/RedditAll", links, sys.argv[3] + "/Reddit2ndTest")
