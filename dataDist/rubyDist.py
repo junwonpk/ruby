@@ -17,6 +17,7 @@ def countColumn(filename, cName):
             counts[count] += 1
             if i % 100000 == 0:
                 print "Processed {} lines".format(i)
+                print comment["created_utc"]
     return counts
 
 def outputCounts(counts, filename):

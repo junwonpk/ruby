@@ -13,10 +13,10 @@ def getXY(filename, xName, yName):
     with open(filename, "r") as inFile:
         for i, line in enumerate(inFile, 1):
             comment = json.loads(line)
-            if comment[xName] > 48:
-                continue
-            if comment[yName] > 400:
-                continue
+            # if comment[xName] > 48:
+            #     continue
+            # if comment[yName] > 400:
+            #     continue
             xs.append(comment[xName])
             ys.append(comment[yName])
             if i % 100000 == 0:
@@ -35,6 +35,23 @@ def plotXY(xs, ys, outputTitle, outputFile):
     # c2, = plt.plot(range(1, 21), c2Errors, "r+", label="c2")
     # plt.legend(handles=[c1, c2])
 
+def bucketizePlot(xs, ys, outputFile):
+    zeros = []
+    ones = []
+    for x, y in zip(xs, ys):
+        if y == 0:
+            zeros.append[x]
+        else:
+            ones.append[x]
+    zeros = np.array(zeros) / 
+    n, bins, patches = plt.hist(zeros, bins, facecolor='blue', alpha=0.5)
+
+    plt.xlabel("response time hours")
+    plt.ylabel("percentage")
+    plt.savefig(outFile)
+
+
+    
 
 def outputCounts(counts, filename):
     print "Outputting to {}".format(filename)
@@ -47,4 +64,4 @@ if __name__ == "__main__":
     outFile = sys.argv[2]
 
     xs, ys = getXY(inFile, "response_time_hours", "num_child_comments")
-    points = plotXY(xs, ys, "child comments vs. response time", outFile)
+    # points = plotXY(xs, ys, "child comments vs. response time", outFile)
