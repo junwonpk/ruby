@@ -9,5 +9,3 @@ word2vec.txt
 model*
 *.p
 logdir
-oracle*
-Data*
