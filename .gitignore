@@ -1,6 +1,13 @@
+glove*.txt
 reddit
+Reddit*
 reddit2nd
 redditnews
 glove.txt
 word2vec.txt
 .*
+model*
+*.p
+logdir
+oracle*
+Data*
