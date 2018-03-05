@@ -14,7 +14,7 @@ def getConfig():
         "addLength": True,
         "addCommentp": False
     }
-    config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLen"]
+    config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"]
     config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5
     config["lstmUnits"] = 64
     config["dropoutKeepProb"] = 0.9
