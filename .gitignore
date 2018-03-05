@@ -9,3 +9,5 @@ word2vec.txt
 model*
 *.p
 logdir
+*~
+statsout
