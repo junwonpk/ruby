@@ -93,7 +93,7 @@ def loadComments(filename, maxComments, config):
 
 def printConfig(config):
     print "-----------------------------------------"
-    pprint(config)
+    print ["{}: {}".format(k, v) for k, v in sorted(config.iteritems())]
     print "-----------------------------------------"
 
 def plot(losses, trainAccuracies, devAccuracies, outputFile):
