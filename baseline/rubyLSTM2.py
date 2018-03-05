@@ -21,11 +21,12 @@ def doWork(embed, trainComments, trainCommentfs, trainLabels, devComments, devCo
     batchSize = len(trainComments[0])
 
     # model parameters
-    learningRates = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5
+    # learningRates = [0.01] * 10 + [0.005] * 10 + [0.003] * 10 + [0.002] * 10
+    learningRates = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5 + [0.0004] * 5 + [0.0003] * 5 + [0.0002] * 5 + [0.0001] * 5
     lstmUnits = 64
     dropoutKeepProb = 0.9
     numClasses = 2
-    epochs = 30
+    epochs = len(learningRates)
     layer2Units = 32
 
     # Additional comment features.
@@ -180,7 +181,7 @@ def loadWordVectors(inFilename):
         for i, line in enumerate(inFile, 1):
             row = line.strip().split(' ')
             vocab[row[0]] = i
-            embed.append(row[1:])
+            embed.append([float(num) for num in row[1:]])
 
             if i % 100000 == 0:
                 print "Processed {} lines".format(i)
