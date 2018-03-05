@@ -36,7 +36,7 @@ def getLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
         # LSTM
         lstmCell = tf.contrib.rnn.BasicLSTMCell(config["lstmUnits"])
         lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
-        cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, dtype=tf.float32)
+        cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, dtype=tf.float32, scope=scope)
 
         # Output to pred
         cellOutputs = tf.transpose(cellOutputs, [2, 0, 1]) # cells, batches, len
