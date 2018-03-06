@@ -15,21 +15,72 @@ def getConfig():
         "addCommentp": False
     }
     config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"]
-    config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5
-    config["lstmUnits"] = 64
-    config["dropoutKeepProb"] = 0.9
+    config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
+    config["lstmUnits"] = None
+    config["attentionUnits"] = 32
+    config["layer2Units"] = 16
     config["numClasses"] = 2
-    config["layer2Units"] = 32
-    config["numTrain"] = 10000
-    config["numDev"] = 2000
+    config["dropoutKeepProb"] = 0.9
+    config["numTrain"] = 100000
+    config["numDev"] = 20000
     config["numEpochs"] = len(config["learningRates"])
 
     # Junk.
+    # config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5
     # learningRates = [0.01] * 10 + [0.005] * 10 + [0.003] * 10 + [0.002] * 10
     # learningRates = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5 + [0.0004] * 5 + [0.0003] * 5 + [0.0002] * 5 + [0.0001] * 5
     # learningRates = [0.01] * 10 + [0.005] * 10
 
     return config
+
+def attention(inputs, attention_size, time_major=False, return_alphas=False):
+    if isinstance(inputs, tuple):
+        # In case of Bi-RNN, concatenate the forward and the backward RNN outputs.
+        inputs = tf.concat(inputs, 2)
+
+    if time_major:
+        # (T,B,D) => (B,T,D)
+        inputs = tf.array_ops.transpose(inputs, [1, 0, 2])
+
+    hidden_size = inputs.shape[2].value  # D value - hidden size of the RNN layer
+
+    # Trainable parameters
+    w_omega = tf.Variable(tf.random_normal([hidden_size, attention_size], stddev=0.1))
+    b_omega = tf.Variable(tf.random_normal([attention_size], stddev=0.1))
+    u_omega = tf.Variable(tf.random_normal([attention_size], stddev=0.1))
+
+    with tf.name_scope('v'):
+        # Applying fully connected layer with non-linear activation to each of the B*T timestamps;
+        #  the shape of `v` is (B,T,D)*(D,A)=(B,T,A), where A=attention_size
+        v = tf.tanh(tf.tensordot(inputs, w_omega, axes=1) + b_omega)
+
+    # For each of the timestamps its vector of size A from `v` is reduced with `u` vector
+    vu = tf.tensordot(v, u_omega, axes=1, name='vu')  # (B,T) shape
+    alphas = tf.nn.softmax(vu, name='alphas')         # (B,T) shape
+
+    # Output of (Bi-)RNN is reduced with attention vector; the result has (B,D) shape
+    output = tf.reduce_sum(inputs * tf.expand_dims(alphas, -1), 1)
+
+    if not return_alphas:
+        return output
+    else:
+        return output, alphas
+
+def getAttentionLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
+    with tf.name_scope(scope):
+        # LSTM
+        seqLengths = tf.reduce_sum(masks, axis=1)
+        lstmCell = tf.contrib.rnn.BasicLSTMCell(config["lstmUnits"])
+        lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
+        cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, sequence_length=seqLengths, dtype=tf.float32, scope=scope)
+
+        # Attention layer
+        attentionOutputs = attention(cellOutputs, config["attentionUnits"])
+
+        # Dropout layer
+        dropoutOutputs = tf.nn.dropout(attentionOutputs, dropoutKeepProb)
+
+        return dropoutOutputs
 
 def getLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
     with tf.name_scope(scope):
@@ -46,7 +97,7 @@ def getLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
     return lstmOutputs
 
 def train(embed, trainData, devData, config):
-    # create input placeholders
+    # Create input placeholders
     comments = tf.placeholder(tf.int32, [None, config["maxDocLength"]])
     masks = tf.placeholder(tf.float32, [None, config["maxDocLength"]])
     commentps = tf.placeholder(tf.int32, [None, config["maxDocLength"]])
@@ -63,14 +114,18 @@ def train(embed, trainData, devData, config):
         embeddingps = tf.nn.embedding_lookup(E, commentps)
 
     # LSTM
-    lstmOutputs = [getLSTMOutputs(embeddings, masks, dropoutKeepProb, "lstm", config)]
+    lstmOutputs = None
+    if config["attentionUnits"]:
+        lstmOutputs = [getAttentionLSTMOutputs(embeddings, masks, dropoutKeepProb, "lstm", config)]
+    else:
+        lstmOutputs = [getLSTMOutputs(embeddings, masks, dropoutKeepProb, "lstm", config)]
     if config["addCommentp"]:
         lstmOutputs.append(getLSTMOutputs(embeddingps, maskps, dropoutKeepProb, "lstmp", config))
     if config["addCommentf"]:
         lstmOutputs.append(commentfs)
     lstmOutputs = tf.concat(lstmOutputs, axis=1)
 
-    # layer 1 ReLu
+    # Layer 1 ReLu
     W1 = tf.get_variable(
         "W1",
         shape=[config["numLSTMOutputs"], config["layer2Units"]],
@@ -80,6 +135,9 @@ def train(embed, trainData, devData, config):
         shape=[config["layer2Units"]], 
         initializer=tf.constant_initializer(0.1))
     layer1Output = tf.nn.relu(tf.matmul(lstmOutputs, W1) + b1)
+
+    # Dropout layer
+    layer1Droutput = tf.nn.dropout(layer1Output, dropoutKeepProb)
 
     # layer 2 softmax
     with tf.name_scope("layer2"):
@@ -91,7 +149,7 @@ def train(embed, trainData, devData, config):
             "b2",
             shape=[config["numClasses"]],
             initializer=tf.constant_initializer(0.1))
-    prediction = tf.matmul(layer1Output, W2) + b2
+    prediction = tf.matmul(layer1Droutput, W2) + b2
 
     # Accuracy
     correctPred = tf.equal(tf.argmax(prediction, 1), tf.argmax(labels, 1))
