@@ -16,7 +16,7 @@ def getConfig():
     }
     config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"]
     config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
-    config["lstmUnits"] = None
+    config["lstmUnits"] = 64
     config["attentionUnits"] = 32
     config["layer2Units"] = 16
     config["numClasses"] = 2
