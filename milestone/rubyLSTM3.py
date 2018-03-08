@@ -11,21 +11,24 @@ def getConfig():
         "batchSize": 256,
         "addRT": True,
         "addTime": False,
+        "addTime2": True,
         "addLength": True,
         "addCommentp": False
     }
     config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"]
-    config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
+    config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5
     config["lstmUnits"] = 64
     config["attentionUnits"] = 32
     config["layer2Units"] = 16
     config["numClasses"] = 2
     config["dropoutKeepProb"] = 0.9
-    config["numTrain"] = 100000
-    config["numDev"] = 20000
+    config["numTrain"] = 20000
+    config["numDev"] = 5000
     config["numEpochs"] = len(config["learningRates"])
 
     # Junk.
+    # config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
+    # config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
     # config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5
     # learningRates = [0.01] * 10 + [0.005] * 10 + [0.003] * 10 + [0.002] * 10
     # learningRates = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5 + [0.0004] * 5 + [0.0003] * 5 + [0.0002] * 5 + [0.0001] * 5
@@ -136,9 +139,6 @@ def train(embed, trainData, devData, config):
         initializer=tf.constant_initializer(0.1))
     layer1Output = tf.nn.relu(tf.matmul(lstmOutputs, W1) + b1)
 
-    # Dropout layer
-    layer1Droutput = tf.nn.dropout(layer1Output, dropoutKeepProb)
-
     # layer 2 softmax
     with tf.name_scope("layer2"):
         W2 = tf.get_variable(
@@ -149,11 +149,13 @@ def train(embed, trainData, devData, config):
             "b2",
             shape=[config["numClasses"]],
             initializer=tf.constant_initializer(0.1))
-    prediction = tf.matmul(layer1Droutput, W2) + b2
+    prediction = tf.matmul(layer1Output, W2) + b2
 
     # Accuracy
-    correctPred = tf.equal(tf.argmax(prediction, 1), tf.argmax(labels, 1))
-    accuracy = tf.reduce_mean(tf.cast(correctPred, tf.float32))
+    prediction2 = tf.argmax(prediction, 1)
+    labels2 = tf.argmax(labels, 1)
+    confusionMatrix = tf.confusion_matrix(labels2, prediction2)
+    accuracy = tf.reduce_mean(tf.cast(tf.equal(prediction2, labels2), tf.float32))
 
     # Loss and optimizer
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction, labels=labels))
@@ -166,6 +168,11 @@ def train(embed, trainData, devData, config):
     losses = []
     trainAccuracies = []
     devAccuracies = []
+
+    # Collect best info.
+    bestDevIndex = None
+    bestDevPredictions = []
+    bestDevConfusionMatrix = []
 
     with tf.Session() as sess:
         # Variable Initialization.
@@ -203,8 +210,10 @@ def train(embed, trainData, devData, config):
             print "Epoch: {}, Loss: {}, Accuracy: {}".format(epoch + 1, losses[-1], trainAccuracies[-1])
 
             # Dev.
+            epochPredictions = []
+            epochConfusionMatrix = 0
             epochAccuracy = 0
-            for batchNum, batches in enumerate(utils.get_minibatches(devData, config["batchSize"])):
+            for batchNum, batches in enumerate(utils.get_minibatches(devData, config["batchSize"], False)):
                 feedDict = {
                     comments: batches[0],
                     masks: batches[1],
@@ -218,29 +227,34 @@ def train(embed, trainData, devData, config):
                 if config["addCommentf"]:
                     feedDict[commentfs] = batches[4]
 
+                batchPredictions, batchConfusionMatrix, batchAccuracy = sess.run([prediction2, confusionMatrix, accuracy], feedDict)
+
                 batchSize = len(batches[0])
-                epochAccuracy += sess.run(accuracy, feedDict) * batchSize
+                epochPredictions.extend(batchPredictions)
+                epochConfusionMatrix += np.asarray(batchConfusionMatrix)
+                epochAccuracy += batchAccuracy * batchSize
             devAccuracies.append(epochAccuracy / float(config["numDev"]))
             print "Dev Accuracy: {}".format(devAccuracies[-1])
+
+            # Save best dev 
+            if bestDevIndex is None or devAccuracies[-1] > devAccuracies[bestDevIndex]:
+                bestDevIndex = len(devAccuracies) - 1
+                bestDevPredictions = epochPredictions
+                bestDevConfusionMatrix = epochConfusionMatrix
 
             # savePath = saver.save(sess, saveOut)
             # print "Model saved at {}".format(savePath)
 
     # Print out summary.
-    bestDevAccuracy = 0
-    bestIndex = 0
-    for i, accuracy in enumerate(devAccuracies):
-        if accuracy > bestDevAccuracy:
-            bestDevAccuracy = accuracy
-            bestIndex = i
     print "Best Dev of {} at epoch {}, train acc: {}, train loss: {}".format(
-        bestDevAccuracy,
-        bestIndex + 1,
-        trainAccuracies[bestIndex],
-        losses[bestIndex])
+        devAccuracies[bestDevIndex],
+        bestDevIndex + 1,
+        trainAccuracies[bestDevIndex],
+        losses[bestDevIndex])
+    print bestDevConfusionMatrix
 
     # Return series.
-    return losses, trainAccuracies, devAccuracies
+    return losses, trainAccuracies, devAccuracies, bestDevPredictions
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LSTM model")
@@ -270,7 +284,13 @@ if __name__ == "__main__":
     utils.printConfig(config)
  
     print "Training"
-    losses, trainAccuracies, devAccuracies = train(embed, trainData, devData, config)
+    losses, trainAccuracies, devAccuracies, devPredictions = train(embed, trainData, devData, config)
 
     print "Plotting"
     utils.plot(losses, trainAccuracies, devAccuracies, args.outPrefix)
+
+    print "Outputting"
+    utils.labelCommentsWithPredictions(
+        args.inDir + "/Reddit2ndDevT",
+        args.outPrefix + "Pred.json",
+        devPredictions)

@@ -1,7 +1,7 @@
 import json
 import matplotlib.pyplot as plt
 import numpy as np
-import pprint
+import datetime
 
 def get_minibatches(data, minibatch_size, shuffle=True):
     """
@@ -77,6 +77,14 @@ def loadComments(filename, maxComments, config):
             if config["addTime"]:
                 commentf.append(comment["time_of_day"])
                 commentf.append(comment["weekday"])
+            if config["addTime2"]:
+                created = datetime.datetime.fromtimestamp(
+                    comment["created_utc"]
+                )
+                value = created.time().hour
+                timeVec = [0] * 24
+                timeVec[value] = 1
+                commentf.extend(timeVec)
             if config["addLength"]:
                 commentf.append(len(comment["body_t"]))
             commentfs.append(commentf)
@@ -90,6 +98,19 @@ def loadComments(filename, maxComments, config):
                 print "Processed {} lines".format(i)
 
     return [comments, masks, commentps, maskps, commentfs, labels]
+
+
+def labelCommentsWithPredictions(inFilename, outFilename, predictions):
+    with open(inFilename, "r") as inFile, open(outFilename, "w") as outFile:
+        for i, line in enumerate(inFile):
+            if i >= len(predictions):
+                break
+            comment = json.loads(line)
+            comment["prediction"] = predictions[i]
+            outFile.write(json.dumps(comment) + "\n")
+
+            if (i + 1) % 10000 == 0:
+                print "Processed {} lines".format(i)
 
 def printConfig(config):
     print "-----------------------------------------"
