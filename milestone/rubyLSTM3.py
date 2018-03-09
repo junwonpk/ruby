@@ -11,19 +11,19 @@ def getConfig():
         "batchSize": 256,
         "addRT": True,
         "addTime": False,
-        "addTime2": True,
+        "addTime2": False,
         "addLength": True,
         "addCommentp": False
     }
     config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"]
     config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5
     config["lstmUnits"] = 64
-    config["attentionUnits"] = 32
-    config["layer2Units"] = 16
+    config["attentionUnits"] = None
+    config["layer2Units"] = 32
     config["numClasses"] = 2
     config["dropoutKeepProb"] = 0.9
-    config["numTrain"] = 20000
-    config["numDev"] = 5000
+    config["numTrain"] = 200000
+    config["numDev"] = 40000
     config["numEpochs"] = len(config["learningRates"])
 
     # Junk.
@@ -269,10 +269,10 @@ if __name__ == "__main__":
     embed = np.loadtxt(args.inDir + "/embed.txt", dtype=np.float32)
 
     print "Loading Training Data"
-    trainData = utils.loadComments(args.inDir + "/Reddit2ndTrainT", config["numTrain"], config)
+    trainData = utils.loadComments(args.inDir + "/ProcessedDev", config["numTrain"], config)
 
     print "Loading Dev Data"
-    devData = utils.loadComments(args.inDir + "/Reddit2ndDevT", config["numDev"], config)
+    devData = utils.loadComments(args.inDir + "/ProcessedTrain", config["numDev"], config)
 
     # Additional configs
     config["vocabSize"] = len(embed)
