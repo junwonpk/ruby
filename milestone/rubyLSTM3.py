@@ -8,14 +8,14 @@ import utils
 def getConfig():
     config = {
         "maxDocLength": 250,  # Max is 2191
-        "batchSize": 256,
+        "batchSize": 64,
         "addRT": True,
         "addTime": False,
         "addTime2": False,
         "addLength": True,
         "addCommentp": False
     }
-    config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"]
+    config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"] or config["addTime2"]
     config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5
     config["lstmUnits"] = 64
     config["attentionUnits"] = None
@@ -27,6 +27,7 @@ def getConfig():
     config["numEpochs"] = len(config["learningRates"])
 
     # Junk.
+    # config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
     # config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
     # config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
     # config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5
@@ -74,7 +75,7 @@ def getAttentionLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
         # LSTM
         seqLengths = tf.reduce_sum(masks, axis=1)
         lstmCell = tf.contrib.rnn.BasicLSTMCell(config["lstmUnits"])
-        lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
+        # lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
         cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, sequence_length=seqLengths, dtype=tf.float32, scope=scope)
 
         # Attention layer
@@ -89,7 +90,6 @@ def getLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
     with tf.name_scope(scope):
         # LSTM
         lstmCell = tf.contrib.rnn.BasicLSTMCell(config["lstmUnits"])
-        lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
         cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, dtype=tf.float32, scope=scope)
 
         # Output to pred
@@ -139,6 +139,9 @@ def train(embed, trainData, devData, config):
         initializer=tf.constant_initializer(0.1))
     layer1Output = tf.nn.relu(tf.matmul(lstmOutputs, W1) + b1)
 
+
+    layer1Droutput = tf.nn.dropout(layer1Output, dropoutKeepProb)
+
     # layer 2 softmax
     with tf.name_scope("layer2"):
         W2 = tf.get_variable(
@@ -149,7 +152,7 @@ def train(embed, trainData, devData, config):
             "b2",
             shape=[config["numClasses"]],
             initializer=tf.constant_initializer(0.1))
-    prediction = tf.matmul(layer1Output, W2) + b2
+    prediction = tf.matmul(layer1Droutput, W2) + b2
 
     # Accuracy
     prediction2 = tf.argmax(prediction, 1)
@@ -291,6 +294,6 @@ if __name__ == "__main__":
 
     print "Outputting"
     utils.labelCommentsWithPredictions(
-        args.inDir + "/Reddit2ndDevT",
+        args.inDir + "/ProcessedDev",
         args.outPrefix + "Pred.json",
         devPredictions)

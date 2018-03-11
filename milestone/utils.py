@@ -84,9 +84,7 @@ def loadComments(filename, maxComments, config):
                     comment["created_utc"]
                 )
                 value = created.time().hour
-                timeVec = [0] * 24
-                timeVec[value] = 1
-                commentf.extend(timeVec)
+                commentf.append(value)
             if config["addLength"]:
                 commentf.append(len(comment["body_t"]))
             commentfs.append(commentf)
@@ -112,7 +110,7 @@ def labelCommentsWithPredictions(inFilename, outFilename, predictions):
             outFile.write(json.dumps(comment) + "\n")
 
             if (i + 1) % 10000 == 0:
-                print "Processed {} lines".format(i)
+                print "Processed {} lines".format(i + 1)
 
 def printConfig(config):
     print "-----------------------------------------"
