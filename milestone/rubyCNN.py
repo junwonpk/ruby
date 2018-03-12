@@ -26,6 +26,7 @@ def getConfig():
     config["filterSizes"] = [1, 2, 3]
     config["numFilters"] = 100
     config["layer2Units"] = 64
+    config["lambda"] = None
 
     # Junk.
     # config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
@@ -50,7 +51,7 @@ def train(embed, trainData, devData, config):
 
     # Create embedding tranform.
     with tf.variable_scope("embedding"):
-        E = tf.get_variable("E", initializer=embed, trainable=True)
+        E = tf.get_variable("E", initializer=embed, trainable=False)
         embeddings = tf.expand_dims(tf.nn.embedding_lookup(E, comments), -1)
 
     # CNN
@@ -63,7 +64,7 @@ def train(embed, trainData, devData, config):
                 shape=[filterSize, config["embedDim"], 1, config["numFilters"]],
                 initializer=tf.initializers.truncated_normal(stddev=0.1))
             bc = tf.get_variable(
-                "bc", 
+                "biasc",
                 shape=[config["numFilters"]],
                 initializer=tf.constant_initializer(0.1))
             conv = tf.nn.conv2d(
@@ -102,7 +103,7 @@ def train(embed, trainData, devData, config):
             shape=[numFiltersTotal + config["numCommentfs"], config["layer2Units"]],
             initializer=tf.initializers.truncated_normal(stddev=0.1))
         b1 = tf.get_variable(
-            "b1", 
+            "bias1",
             shape=[config["layer2Units"]], 
             initializer=tf.constant_initializer(0.1))
         layer1Output = tf.nn.relu(tf.matmul(hDroutput, W1) + b1)
@@ -117,7 +118,7 @@ def train(embed, trainData, devData, config):
             shape=[config["layer2Units"], config["numClasses"]],
             initializer=tf.initializers.truncated_normal(stddev=0.1))
         b2 = tf.get_variable(
-            "b2",
+            "bias2",
             shape=[config["numClasses"]],
             initializer=tf.constant_initializer(0.1))
     prediction = tf.matmul(layer1Droutput, W2) + b2
@@ -130,6 +131,13 @@ def train(embed, trainData, devData, config):
 
     # Loss and optimizer
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction, labels=labels))
+    if config["lambda"]:
+        l2 = config["lambda"] * sum(
+            tf.nn.l2_loss(variable) for
+            variable in
+            tf.trainable_variables()
+            if not ("bias" in variable.name))
+        loss += l2
     optimizer = tf.train.AdamOptimizer(learning_rate=learningRate).minimize(loss)
 
     # Saver
