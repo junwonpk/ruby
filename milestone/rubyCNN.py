@@ -262,10 +262,10 @@ if __name__ == "__main__":
     embed = np.loadtxt(args.inDir + "/embed.txt", dtype=np.float32)
 
     print "Loading Training Data"
-    trainData = utils.loadComments(args.inDir + "/ProcessedDev", config["numTrain"], config)
+    trainData = utils.loadComments(args.inDir + "/ProcessedTrain", config["numTrain"], config)
 
     print "Loading Dev Data"
-    devData = utils.loadComments(args.inDir + "/ProcessedTrain", config["numDev"], config)
+    devData = utils.loadComments(args.inDir + "/ProcessedDev", config["numDev"], config)
 
     # Additional configs
     config["vocabSize"] = len(embed)
