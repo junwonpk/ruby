@@ -156,6 +156,7 @@ def train(embed, trainData, devData, config):
     with tf.Session() as sess:
         # Variable Initialization.
         if config["restoreDir"]:
+            print "Restoring from {}".format(config["restoreDir"])
             saver.restore(sess, config["restoreDir"])
         else:
             sess.run(tf.global_variables_initializer())
