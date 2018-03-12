@@ -89,10 +89,18 @@ def loadComments(filename, maxComments, config):
                 commentf.append(len(comment["body_t"]))
             commentfs.append(commentf)
 
-            if comment["num_child_comments"] == 0:
-                labels.append([1, 0])
+            if config["predictScore"]:
+                if comment["score"] < 1:
+                    labels.append([1, 0, 0])
+                elif comment["score"] >= 1 and comment["score"] <= 2:
+                    labels.append([0, 1, 0])
+                else:
+                    labels.append([0, 0, 1])
             else:
-                labels.append([0, 1])
+                if comment["num_child_comments"] == 0:
+                    labels.append([1, 0])
+                else:
+                    labels.append([0, 1])
 
             if i % 10000 == 0:
                 print "Processed {} lines".format(i)
