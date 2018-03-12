@@ -12,15 +12,17 @@ TOKEN_PAD = "TOKEN_PAD"
 TOKEN_UNK = "TOKEN_UNK"
 
 def process_comment(comment, vocab, frequencies):
+    newWords = 0
     processedComment = []
     for word in nltk.word_tokenize(comment):
         word = process_word(word)
         if word not in vocab:
             vocab[word] = np.random.randn(len(vocab[TOKEN_PAD]))
             frequencies[word] = 0
+            newWords += 1
         frequencies[word] += 1
         processedComment.append(word)
-    return processedComment
+    return processedComment, newWords
 
 def process_word(word):
     if 'http' in word:
@@ -33,20 +35,22 @@ def process_word(word):
     return word
 
 def processComments(filename, numLines, vocab, frequencies):
+    newWords = 0
     comments = []
     with open(filename, "r") as inFile:
         for i, line in enumerate(inFile, 1):
             if len(comments) >= numLines:
                 break
             comment = json.loads(line)
-            comment["body_t"] = process_comment(comment["body"], vocab, frequencies)
-            comment["parent_comment_t"] = process_comment(comment["parent_comment"], vocab, frequencies)
+            comment["body_t"], newWordsB = process_comment(comment["body"], vocab, frequencies)
+            comment["parent_comment_t"], newWordsP = process_comment(comment["parent_comment"], vocab, frequencies)
             comments.append(comment)
+            newWords += newWordsB + newWordsP
 
             if i % 10000 == 0:
                 print "Processed {} lines".format(i)
 
-    return comments
+    return comments, newWords
 
 def cleanFrequencies(vocab, frequencies):
     assert len(vocab) - 2 == len(frequencies)
@@ -127,18 +131,20 @@ if __name__ == "__main__":
     vocab, frequencies = loadWordVectors(args.wordVectors)
 
     print "Processing Training Data"
-    trainComments = processComments(
+    trainComments, newWords = processComments(
         args.inDir + "/Reddit2ndTrainTime",
         numLines,
         vocab,
         frequencies)
+    print "{} new words from train".format(newWords)
 
     print "Processing Dev Data"
-    devComments = processComments(
+    devComments, newWords = processComments(
         args.inDir + "/Reddit2ndDevTime",
         numLines,
         vocab,
         frequencies)
+    print "{} new words from dev".format(newWords)
 
     print "Cleaning frequencies"
     vocab, embed = cleanFrequencies(vocab, frequencies)
