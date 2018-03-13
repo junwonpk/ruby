@@ -40,24 +40,11 @@ def getConfig():
 
     return config
 
-def train(embed, trainData, devData, config):
-    # Create input placeholders
-    comments = tf.placeholder(tf.int32, [None, config["maxDocLength"]])
-    masks = tf.placeholder(tf.float32, [None, config["maxDocLength"]])
-    commentfs = tf.placeholder(tf.float32, [None, config["numCommentfs"]])
-    labels = tf.placeholder(tf.float32, [None, config["numClasses"]])
-    dropoutKeepProb = tf.placeholder(tf.float32)
-    learningRate = tf.placeholder(tf.float32)
-
-    # Create embedding tranform.
-    with tf.variable_scope("embedding"):
-        E = tf.get_variable("E", initializer=embed, trainable=False)
-        embeddings = tf.expand_dims(tf.nn.embedding_lookup(E, comments), -1)
-
+def getCNNOutputs(embeddings, dropoutKeepProb, scope, config):
     # CNN
     pooledOutputs = []
     for filterSize in config["filterSizes"]:
-        with tf.variable_scope("conv-maxpool-{}".format(filterSize)):
+        with tf.variable_scope("conv-maxpool-{}-{}".format(scope, filterSize)):
             # Convolution Layer
             Wc = tf.get_variable(
                 "Wc",
@@ -89,8 +76,40 @@ def train(embed, trainData, devData, config):
     h_pool = tf.concat(pooledOutputs, axis=3)
     h_pool_flat = tf.reshape(h_pool, [-1, numFiltersTotal])
 
+    return h_pool_flat
+
+def train(embed, trainData, devData, config):
+    # Create input placeholders
+    comments = tf.placeholder(tf.int32, [None, config["maxDocLength"]])
+    masks = tf.placeholder(tf.float32, [None, config["maxDocLength"]])
+    commentps = tf.placeholder(tf.int32, [None, config["maxDocLength"]])
+    maskps = tf.placeholder(tf.float32, [None, config["maxDocLength"]])
+    commentfs = tf.placeholder(tf.float32, [None, config["numCommentfs"]])
+    labels = tf.placeholder(tf.float32, [None, config["numClasses"]])
+    dropoutKeepProb = tf.placeholder(tf.float32)
+    learningRate = tf.placeholder(tf.float32)
+
+    # Create embedding tranform.
+    with tf.variable_scope("embedding"):
+        E = tf.get_variable("E", initializer=embed, trainable=False)
+        embeddings = tf.expand_dims(tf.nn.embedding_lookup(E, comments), -1)
+        embeddingps = tf.expand_dims(tf.nn.embedding_lookup(E, commentps), -1)
+
+    # CNN
+    cnnOutputs = getCNNOutputs(embeddings, dropoutKeepProb, "c", config)
+    numFiltersTotal = config["numFilters"] * len(config["filterSizes"])
+    if config["addCommentp"]:
+        cnnOutputps = getCNNOutputs(embeddingps, dropoutKeepProb, "p", config)
+        S = tf.get_variable(
+            "S",
+            shape=[numFiltersTotal, numFiltersTotal],
+            initializer=tf.initializers.truncated_normal(stddev=0.1))
+        cnnOutputps = tf.expand_dims(tf.reduce_sum(tf.matmul(cnnOutputs, S) * cnnOutputps, axis=1), -1)
+        cnnOutputs = tf.concat([cnnOutputs, cnnOutputps], axis=1)
+        numFiltersTotal += 1
+
     # Dropout
-    hDroutput = tf.nn.dropout(h_pool_flat, dropoutKeepProb)
+    hDroutput = tf.nn.dropout(cnnOutputs, dropoutKeepProb)
 
     # Add in extra features
     if config["addCommentf"]:
@@ -175,9 +194,9 @@ def train(embed, trainData, devData, config):
                     learningRate: config["learningRates"][epoch],
                     dropoutKeepProb: config["dropoutKeepProb"]
                 }
-                # if config["addCommentp"]:
-                #     feedDict[commentps] = batches[2]
-                #     feedDict[maskps] = batches[3]
+                if config["addCommentp"]:
+                    feedDict[commentps] = batches[2]
+                    feedDict[maskps] = batches[3]
                 if config["addCommentf"]:
                     feedDict[commentfs] = batches[4]
 
@@ -203,9 +222,9 @@ def train(embed, trainData, devData, config):
                     learningRate: config["learningRates"][epoch],
                     dropoutKeepProb: 1.0
                 }
-                # if config["addCommentp"]:
-                #     feedDict[commentps] = batches[2]
-                #     feedDict[maskps] = batches[3]
+                if config["addCommentp"]:
+                    feedDict[commentps] = batches[2]
+                    feedDict[maskps] = batches[3]
                 if config["addCommentf"]:
                     feedDict[commentfs] = batches[4]
 
