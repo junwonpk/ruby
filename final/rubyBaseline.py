@@ -23,7 +23,7 @@ def softmaxRegression(trainComments, trainLabels, devComments, devLabels):
     lr = LogisticRegression(
             C=1.0,
             solver="sag",
-            max_iter=200,
+            max_iter=100,
             verbose=True)
     lr.fit(trainX, trainLabels)
     trainPreds = lr.predict(trainX)
@@ -56,12 +56,12 @@ def loadComments(filename, numComments):
 if __name__ == "__main__":
     print "Loading Training Data"
     trainComments, trainLabels = loadComments(
-        sys.argv[1] + "/ProcessedTrain",
+        sys.argv[1] + "/RawTrain",
         200000)
 
     print "Loading Dev Data"
     devComments, devLabels = loadComments(
-        sys.argv[1] + "/ProcessedDev",
+        sys.argv[1] + "/RawDev",
         40000)
 
     softmaxRegression(trainComments, trainLabels, devComments, devLabels)
