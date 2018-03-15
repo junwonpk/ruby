@@ -72,7 +72,7 @@ def getCNNOutputs(embeddings, dropoutKeepProb, scope, config):
                 padding="VALID",
                 name="pool")
             pooledOutputs.append(pooled)
- 
+
     # Combine all the pooled features
     numFiltersTotal = config["numFilters"] * len(config["filterSizes"])
     h_pool = tf.concat(pooledOutputs, axis=3)
