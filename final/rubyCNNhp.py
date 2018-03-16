@@ -14,20 +14,21 @@ def getConfig():
         "addTime": False,
         "addTime2": False,
         "addLength": True,
-        "addSIT": False,
+        "addSIT": True,
         "addCommentp": False,
         "addDepth": False
     }
     config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"] or config["addTime2"]
-    config["learningRates"] = [0.01] * 2 + [0.005] * 3 + [0.003] * 5 + [0.002] * 3 + [0.001] * 2
-    config["lstmUnits"] = 128
-    config["attentionUnits"] = 32
-    config["layer2Units"] = 32
+    config["learningRates"] = [0.005] * 2 + [0.003] * 2 + [0.002] * 2 # + [0.001] * 2 + [0.0005] * 2
     config["dropoutKeepProb"] = 0.9
     config["numTrain"] = 200000
     config["numDev"] = 40000
     config["numEpochs"] = len(config["learningRates"])
     config["predictScore"] = False
+    config["filterSizes"] = [1, 2, 3]
+    config["numFilters"] = 100
+    config["layer2Units"] = 64
+    config["lambda"] = None
 
     # Junk.
     # config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
@@ -37,73 +38,49 @@ def getConfig():
     # learningRates = [0.01] * 10 + [0.005] * 10 + [0.003] * 10 + [0.002] * 10
     # learningRates = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5 + [0.0004] * 5 + [0.0003] * 5 + [0.0002] * 5 + [0.0001] * 5
     # learningRates = [0.01] * 10 + [0.005] * 10
+    # config["layer3Units"] = 32
 
     return config
 
-def attention(inputs, attention_size, time_major=False, return_alphas=False):
-    if isinstance(inputs, tuple):
-        # In case of Bi-RNN, concatenate the forward and the backward RNN outputs.
-        inputs = tf.concat(inputs, 2)
+def getCNNOutputs(embeddings, dropoutKeepProb, scope, config):
+    # CNN
+    pooledOutputs = []
+    for filterSize in config["filterSizes"]:
+        with tf.variable_scope("conv-maxpool-{}-{}".format(scope, filterSize)):
+            # Convolution Layer
+            Wc = tf.get_variable(
+                "Wc",
+                shape=[filterSize, config["embedDim"], 1, config["numFilters"]],
+                initializer=tf.initializers.truncated_normal(stddev=0.1))
+            bc = tf.get_variable(
+                "biasc",
+                shape=[config["numFilters"]],
+                initializer=tf.constant_initializer(0.1))
+            conv = tf.nn.conv2d(
+                embeddings,
+                Wc,
+                strides=[1, 1, 1, 1],
+                padding="VALID",
+                name="conv")
+            # Apply nonlinearity
+            h = tf.nn.relu(tf.nn.bias_add(conv, bc), name="relu")
+            # Max-pooling over the outputs
+            pooled = tf.nn.max_pool(
+                h,
+                ksize=[1, config["maxDocLength"] - filterSize + 1, 1, 1],
+                strides=[1, 1, 1, 1],
+                padding="VALID",
+                name="pool")
+            pooledOutputs.append(pooled)
 
-    if time_major:
-        # (T,B,D) => (B,T,D)
-        inputs = tf.array_ops.transpose(inputs, [1, 0, 2])
+    # Combine all the pooled features
+    numFiltersTotal = config["numFilters"] * len(config["filterSizes"])
+    h_pool = tf.concat(pooledOutputs, axis=3)
+    h_pool_flat = tf.reshape(h_pool, [-1, numFiltersTotal])
 
-    hidden_size = inputs.shape[2].value  # D value - hidden size of the RNN layer
+    return h_pool_flat
 
-    # Trainable parameters
-    w_omega = tf.Variable(tf.random_normal([hidden_size, attention_size], stddev=0.1))
-    b_omega = tf.Variable(tf.random_normal([attention_size], stddev=0.1))
-    u_omega = tf.Variable(tf.random_normal([attention_size], stddev=0.1))
-
-    with tf.variable_scope('v'):
-        # Applying fully connected layer with non-linear activation to each of the B*T timestamps;
-        #  the shape of `v` is (B,T,D)*(D,A)=(B,T,A), where A=attention_size
-        v = tf.tanh(tf.tensordot(inputs, w_omega, axes=1) + b_omega)
-
-    # For each of the timestamps its vector of size A from `v` is reduced with `u` vector
-    vu = tf.tensordot(v, u_omega, axes=1, name='vu')  # (B,T) shape
-    alphas = tf.nn.softmax(vu, name='alphas')         # (B,T) shape
-
-    # Output of (Bi-)RNN is reduced with attention vector; the result has (B,D) shape
-    output = tf.reduce_sum(inputs * tf.expand_dims(alphas, -1), 1)
-
-    if not return_alphas:
-        return output
-    else:
-        return output, alphas
-
-def getAttentionLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
-    with tf.variable_scope(scope):
-        # LSTM
-        seqLengths = tf.reduce_sum(masks, axis=1)
-        lstmCell = tf.contrib.rnn.BasicLSTMCell(config["lstmUnits"])
-        # lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
-        cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, sequence_length=seqLengths, dtype=tf.float32, scope=scope)
-
-        # Attention layer
-        attentionOutputs = attention(cellOutputs, config["attentionUnits"])
-
-        # Dropout layer
-        dropoutOutputs = tf.nn.dropout(attentionOutputs, dropoutKeepProb)
-
-        return dropoutOutputs
-
-def getLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
-    with tf.variable_scope(scope):
-        # LSTM
-        lstmCell = tf.contrib.rnn.BasicLSTMCell(config["lstmUnits"])
-        # lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
-        cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, dtype=tf.float32, scope=scope)
-
-        # Output to pred
-        cellOutputs = tf.transpose(cellOutputs, [2, 0, 1]) # cells, batches, len
-        maskedOutputs = tf.reduce_sum(cellOutputs * masks, axis=2) / tf.reduce_sum(masks, axis=1)
-        lstmOutputs = tf.transpose(maskedOutputs, [1, 0]) # batches, cells
-
-    return lstmOutputs
-
-def train(embed, trainData, devData, config):
+def getBestDev(embed, trainData, devData, config):
     # Create input placeholders
     comments = tf.placeholder(tf.int32, [None, config["maxDocLength"]])
     masks = tf.placeholder(tf.float32, [None, config["maxDocLength"]])
@@ -117,43 +94,52 @@ def train(embed, trainData, devData, config):
     # Create embedding tranform.
     with tf.variable_scope("embedding"):
         E = tf.get_variable("E", initializer=embed, trainable=False)
-        embeddings = tf.nn.embedding_lookup(E, comments)
-        embeddingps = tf.nn.embedding_lookup(E, commentps)
+        embeddings = tf.expand_dims(tf.nn.embedding_lookup(E, comments), -1)
+        embeddingps = tf.expand_dims(tf.nn.embedding_lookup(E, commentps), -1)
 
-    # LSTM
-    lstmOutputs = None
-    if config["attentionUnits"]:
-        lstmOutputs = [getAttentionLSTMOutputs(embeddings, masks, dropoutKeepProb, "lstm", config)]
-    else:
-        lstmOutputs = [getLSTMOutputs(embeddings, masks, dropoutKeepProb, "lstm", config)]
+    # CNN
+    cnnOutputs = getCNNOutputs(embeddings, dropoutKeepProb, "c", config)
+    numFiltersTotal = config["numFilters"] * len(config["filterSizes"])
     if config["addCommentp"]:
-        lstmOutputs.append(getLSTMOutputs(embeddingps, maskps, dropoutKeepProb, "lstmp", config))
+        cnnOutputps = getCNNOutputs(embeddingps, dropoutKeepProb, "p", config)
+        S = tf.get_variable(
+            "S",
+            shape=[numFiltersTotal, numFiltersTotal],
+            initializer=tf.initializers.truncated_normal(stddev=0.1))
+        cnnOutputps = tf.expand_dims(tf.reduce_sum(tf.matmul(cnnOutputs, S) * cnnOutputps, axis=1), -1)
+        cnnOutputs = tf.concat([cnnOutputs, cnnOutputps], axis=1)
+        numFiltersTotal += 1
+
+    # Dropout
+    hDroutput = tf.nn.dropout(cnnOutputs, dropoutKeepProb)
+
+    # Add in extra features
     if config["addCommentf"]:
-        lstmOutputs.append(commentfs)
-    lstmOutputs = tf.concat(lstmOutputs, axis=1)
+        hDroutput = tf.concat([hDroutput, commentfs], axis=1)
 
     # Layer 1 ReLu
-    W1 = tf.get_variable(
-        "W1",
-        shape=[config["numLSTMOutputs"], config["layer2Units"]],
-        initializer=tf.initializers.truncated_normal())
-    b1 = tf.get_variable(
-        "b1", 
-        shape=[config["layer2Units"]], 
-        initializer=tf.constant_initializer(0.1))
-    layer1Output = tf.nn.relu(tf.matmul(lstmOutputs, W1) + b1)
+    with tf.variable_scope("layer1"):
+        W1 = tf.get_variable(
+            "W1",
+            shape=[numFiltersTotal + config["numCommentfs"], config["layer2Units"]],
+            initializer=tf.initializers.truncated_normal(stddev=0.1))
+        b1 = tf.get_variable(
+            "bias1",
+            shape=[config["layer2Units"]], 
+            initializer=tf.constant_initializer(0.1))
+        layer1Output = tf.nn.relu(tf.matmul(hDroutput, W1) + b1)
 
     # Dropout
     layer1Droutput = tf.nn.dropout(layer1Output, dropoutKeepProb)
 
-    # layer 2 softmax
+    # Output
     with tf.variable_scope("layer2"):
         W2 = tf.get_variable(
             "W2",
             shape=[config["layer2Units"], config["numClasses"]],
-            initializer=tf.initializers.truncated_normal())
+            initializer=tf.initializers.truncated_normal(stddev=0.1))
         b2 = tf.get_variable(
-            "b2",
+            "bias2",
             shape=[config["numClasses"]],
             initializer=tf.constant_initializer(0.1))
     prediction = tf.matmul(layer1Droutput, W2) + b2
@@ -166,6 +152,13 @@ def train(embed, trainData, devData, config):
 
     # Loss and optimizer
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction, labels=labels))
+    if config["lambda"]:
+        l2 = config["lambda"] * sum(
+            tf.nn.l2_loss(variable) for
+            variable in
+            tf.trainable_variables()
+            if not ("bias" in variable.name))
+        loss += l2
     optimizer = tf.train.AdamOptimizer(learning_rate=learningRate).minimize(loss)
 
     # Saver
@@ -184,6 +177,7 @@ def train(embed, trainData, devData, config):
     with tf.Session() as sess:
         # Variable Initialization.
         if config["restoreDir"]:
+            print "Restoring from {}".format(config["restoreDir"])
             saver.restore(sess, config["restoreDir"])
         else:
             sess.run(tf.global_variables_initializer())
@@ -243,7 +237,13 @@ def train(embed, trainData, devData, config):
                 epochConfusionMatrix += np.asarray(batchConfusionMatrix)
                 epochAccuracy += batchAccuracy * batchSize
             devAccuracies.append(epochAccuracy / float(config["numDev"]))
-            print "Dev Accuracy: {}".format(devAccuracies[-1])
+            precision = epochConfusionMatrix[1][1] / float(epochConfusionMatrix[0][1] + epochConfusionMatrix[1][1])
+            recall = epochConfusionMatrix[1][1] / float(epochConfusionMatrix[1][0] + epochConfusionMatrix[1][1])
+            print "Dev Accuracy: {0:.4f} Precision: {1:.4f} Recall: {2:.4f} F1: {3:.4f}".format(
+                devAccuracies[-1],
+                precision,
+                recall,
+                2*precision*recall/(precision + recall))
             print epochConfusionMatrix
 
             # Save best dev 
@@ -264,16 +264,15 @@ def train(embed, trainData, devData, config):
         trainAccuracies[bestDevIndex],
         losses[bestDevIndex])
     print bestDevConfusionMatrix
+    tf.reset_default_graph()
 
     # Return series.
-    return losses, trainAccuracies, devAccuracies, bestDevPredictions
+    return devAccuracies[bestDevIndex]
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="LSTM model")
+    parser = argparse.ArgumentParser(description="CNN model")
     parser.add_argument("-i", "--inDir", help="Input directory of train/dev/test", required=True)
     parser.add_argument("-o", "--outPrefix", help="Output prefix for plot", required=True)
-    parser.add_argument("-s", "--saveDir", help="Directory to save to", required=False)
-    parser.add_argument("-r", "--restoreDir", help="Directory to restore from", required=False)
     args = parser.parse_args()
 
     print "Loading config"
@@ -293,21 +292,20 @@ if __name__ == "__main__":
     config["embedDim"] = len(embed[0])
     config["numClasses"] = len(trainData[5][0])
     config["numCommentfs"] = len(trainData[4][0])
-    config["numLSTMOutputs"] = config["lstmUnits"] + config["numCommentfs"]
-    if config["addCommentp"]:
-        config["numLSTMOutputs"] += config["lstmUnits"]
     utils.printConfig(config)
-    config["saveDir"] = args.saveDir
-    config["restoreDir"] = args.restoreDir
+    config["saveDir"] = None
+    config["restoreDir"] = None
  
-    print "Training"
-    losses, trainAccuracies, devAccuracies, devPredictions = train(embed, trainData, devData, config)
-
-    print "Plotting"
-    utils.plot(losses, trainAccuracies, devAccuracies, args.outPrefix)
-
-    print "Outputting"
-    utils.labelCommentsWithPredictions(
-        args.inDir + "/ProcessedDev",
-        args.outPrefix + "Pred.json",
-        devPredictions)
+    # Grid search
+    # toTry = [[1, 2], [2, 3], [3, 4], [1, 2, 3], [2, 3, 4], [1, 2, 3, 4]]
+    toTry = [20, 50, 100, 200]
+    bestDevs = []
+    for numFilters in toTry:
+        print "numFilters: {}".format(numFilters)
+        config["numFilters"] = numFilters
+        bestDevs.append(getBestDev(embed, trainData, devData, config))
+        print ""
+        print "Results"
+        print toTry
+        print bestDevs
+        print ""
