@@ -1,2 +1,2 @@
-model_checkpoint_path: "model.ckpt"
-all_model_checkpoint_paths: "model.ckpt"
+model_checkpoint_path: "funny-nc30-0.3-2-32-10000-10model.ckpt"
+all_model_checkpoint_paths: "funny-nc30-0.3-2-32-10000-10model.ckpt"

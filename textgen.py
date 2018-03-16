@@ -1,4 +1,5 @@
 import os
+import csv
 import sys
 import json
 import time
@@ -6,9 +7,12 @@ import nltk
 import pickle
 import random
 import numpy as np
+import collections
 import tensorflow as tf
 from random import randrange
 from tqdm import tqdm
+from operator import itemgetter
+from nltk.tokenize import RegexpTokenizer
 
 nltk.download("punkt")
 
@@ -136,11 +140,17 @@ def embed_to_vocab(data_, vocab):
     x len(vocab).
     Vocab is a list of elements.
     """
+    print("Embedding to Vocabulary")
     data = np.zeros((len(data_), len(vocab)))
     cnt = 0
-    for s in data_:
+    for i in tqdm(range(len(data_))):
+    # with open('saved/data.txt', 'r') as f:
+        # for i, line in enumerate(f, 1):
+            # s = line[:-1]
+        s = data_[i]
         v = [0.0] * len(vocab)
-        v[vocab.index(s)] = 1.0
+        if s in vocab:
+            v[vocab.index(s)] = 1.0
         data[cnt, :] = v
         cnt += 1
     return data
@@ -150,15 +160,35 @@ def decode_embed(array, vocab):
     return vocab[array.index(1)]
 
 def compute_perplexity(loss):
-    return tf.exp(loss)
+    return np.exp(loss)
 
+def load_batch(ind, data, vocab):
+    vec = np.zeros((len(ind), len(vocab)))
+    # print(ind)
+    getter = itemgetter(*ind)
+    words = getter(data)
+    # words = data[ind]
+    for i in range(len(words)):
+        v = [0.0] * len(vocab)
+        if words[i] in vocab:
+            v[vocab.index(words[i])] = 1.0
+        vec[i, :] = v
+    return vec
+
+def get_wordvec(word, vocab):
+    v = [0.0] * len(vocab)
+    if word in vocab:
+        v[vocab.index(word)] = 1.0
+    return np.reshape(v, (1, len(vocab)))
 
 def load_data(inputs):
     # Load the data
-    data_ = []
+    data = []
     startwords = set()
     charlens = list()
     count = 0
+    tokenizer = RegexpTokenizer(r'[A-Za-z]+')
+
     for i in tqdm(range(len(inputs))):
         input = inputs[i]
         # print("Loading {}".format(input))
@@ -166,21 +196,25 @@ def load_data(inputs):
             for i, line in enumerate(f, 1):
                 count += 1
                 raw = json.loads(line)
-                comment = nltk.word_tokenize(raw["body"])
-                data_ += comment
+                comment = tokenizer.tokenize(raw["body"])
+                # comment = nltk.word_tokenize(raw["body"])
+                # data += comment.lower()
                 if (len(comment)>0):
                     charlens.append(len(raw["body"]))
                     startwords.add(comment[0])
-#                 data_ += comment["body"]
-#                 charlens.append((len(comment["body"])))
-#                 startwords.add(nltk.word_tokenize(comment["body"])[0])
+                    for word in comment:
+                        if len(word) < 20:
+                            data += [word.lower()]
                 if count % 1000000 == 0:
                     print ("Processed {} lines".format(count))
     startwords = list(startwords)
-    data_ = data_
+
     # Convert to 1-hot coding
-    vocab = sorted(list(set(data_)))
-    data = embed_to_vocab(data_, vocab)
+    # vocab = collections.OrderedDict(sorted(vocab.items(), key=lambda t: t[1]))
+    # print (vocab)
+    # data = embed_to_vocab(data_, vocab)
+    vocab = sorted(list(set(data)))
+    print(vocab)
     return data, vocab, startwords, charlens
 
 def check_restore_parameters(sess, saver):
@@ -191,11 +225,12 @@ def check_restore_parameters(sess, saver):
 
 # def generate(input_files, config):
 def generate(input_files, config, data, vocab, startwords, charlens, savefile):
-    ckpt_file = "saved/model.ckpt"
+    ckpt_file = "saved/{}model.ckpt".format(savefile)
 
 #     print("Loading Data")
 #     data, vocab, startwords, charlens = load_data(input_files)
     print("Loading Config")
+    if len(startwords) < 1: return
     prefix = random.sample(startwords, 1)
     in_size = out_size = len(vocab)
 
@@ -233,7 +268,7 @@ def generate(input_files, config, data, vocab, startwords, charlens, savefile):
     last_time = time.time()
     batch = np.zeros((batch_size, time_steps, in_size))
     batch_y = np.zeros((batch_size, time_steps, in_size))
-    possible_batch_ids = range(data.shape[0] - time_steps - 1)
+    possible_batch_ids = range(len(data) - time_steps - 1)
 
     for i in tqdm(range((NUM_TRAIN_BATCHES))):
         # Sample time_steps consecutive samples from the dataset text file
@@ -243,21 +278,29 @@ def generate(input_files, config, data, vocab, startwords, charlens, savefile):
             ind1 = [k + j for k in batch_id]
             ind2 = [k + j + 1 for k in batch_id]
 
-            batch[:, j, :] = data[ind1, :]
-            batch_y[:, j, :] = data[ind2, :]
+            batch[:, j, :] = load_batch(ind1, data, vocab)
+            batch_y[:, j, :] = load_batch(ind2, data, vocab)
+            # batch[:, j, :] = data[ind1, :]
+            # batch_y[:, j, :] = data[ind2, :]
 
         cst = net.train_batch(batch, batch_y)
 
-        if (i % 100) == 0:
+        if (i % 10) == 0:
             new_time = time.time()
             diff = new_time - last_time
             last_time = new_time
-            with open('results/' + savefile + '.csv', 'a') as csvfile:
-                csvwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                csvwriter.writerow([i, compute_perplexity(cst)])
+            pp = compute_perplexity(cst)
+            if i == 0:
+                with open('results/' + savefile + '.csv', 'w') as csvfile:
+                    csvwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+                    csvwriter.writerow([i, cst, pp, len(vocab)/pp])
+            else:
+                with open('results/' + savefile + '.csv', 'a') as csvfile:
+                    csvwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+                    csvwriter.writerow([i, cst, pp, len(vocab)/pp])
             print(
-                "batch: {}  loss: {}  pp: {} speed: {} batches / s".format(
-                    i, cst, compute_perplexity(cst), 100 / diff
+                "batch: {}  loss: {}  pp: {} score: {}".format(
+                    i, cst, int(pp), len(vocab)/pp
                 )
             )
             saver.save(sess, ckpt_file)
@@ -270,7 +313,7 @@ def generate(input_files, config, data, vocab, startwords, charlens, savefile):
 #     TEST_PREFIX = TEST_PREFIX.lower()
     for i in range(len(TEST_PREFIX)):
         print(TEST_PREFIX[i])
-        out = net.run_step(embed_to_vocab([TEST_PREFIX[i]], vocab), i == 0)
+        out = net.run_step(get_wordvec(TEST_PREFIX[i], vocab), i == 0)
 
     print("Sentence:")
     gen_str = TEST_PREFIX[0]
@@ -278,8 +321,8 @@ def generate(input_files, config, data, vocab, startwords, charlens, savefile):
     for i in range(LEN_TEST_TEXT):
         element = np.random.choice(range(len(vocab)), p=out)
         gen_str += ' ' + vocab[element]
-        out = net.run_step(embed_to_vocab([vocab[element]], vocab), False)
-    with open('results/' + savefile + '.txt', 'r') as outFile:
+        out = net.run_step(get_wordvec(vocab[element], vocab), False)
+    with open('results/' + savefile + '.txt', 'w') as outFile:
         outFile.write(gen_str)
 
     print(gen_str)
@@ -294,36 +337,35 @@ def get_targets(subreddits, features):
 
     for s in subreddits:
         for f in features:
-            for year in range(13):
-                for month in range(12):
-                    y = 2005 + year
-                    y = 2016
-                    m = 1 + month
-                    m = 1
-                    if m < 10:
-                        m = "0" + str(m)
-                    filename = path + str(y) + str(m) + "target" + s + f +".json"
-                    if os.path.isfile(filename) and filename not in files:
-                        files.append(filename)
+            for month in range(12):
+                y = 2016
+                m = 1 + month
+                if m < 10:
+                    m = "0" + str(m)
+                filename = path + str(y) + str(m) + "target" + s + f +".json"
+                if os.path.isfile(filename) and filename not in files:
+                    files.append(filename)
     return files
 
 if __name__ == "__main__":
     if sys.argv[1] == "test":
         config = {
             "lr_rate" : 0.003,
-            "lstm_size" : 256,
+            "lstm_size" : 128,
             "num_layers" : 4,
-            "batch_size" : 128,
-            "time_steps" : 100,
-            "NUM_TRAIN_BATCHES" : 100,
+            "batch_size" : 32,
+            "time_steps" : 40,
+            "NUM_TRAIN_BATCHES" : 10000,
         }
         subreddits = ["funny"]
         features = ["nc30"]
         targets = get_targets(subreddits, features)
+        print("Targeting {} Files".format(len(targets)))
 
         print("Loading Data")
         data, vocab, startwords, charlens = load_data(targets)
-        savefile = "{}-{}-{}-{}-{}".format(
+        print(len(vocab))
+        savefile = "test-{}-{}-{}-{}-{}".format(
             config["lr_rate"],
             config["num_layers"],
             config["batch_size"],
@@ -331,34 +373,29 @@ if __name__ == "__main__":
             config["time_steps"],
         )
         generate(targets, config, data, vocab, startwords, charlens, savefile)
-    elif sys.argv[1] == "batch":
-        for n_batch in []:
-            for b_size in []:
-                for t_steps in []:
-                    for n_layers in []:
-                        for lr_rate in []:
-                            for sub in []:
-                                for fea in []:
-                                    config = {
-                                        "lr_rate" : lr_rate,
-                                        "lstm_size" : 256,
-                                        "num_layers" : n_layers,
-                                        "batch_size" : b_size,
-                                        "time_steps" : t_steps,
-                                        "NUM_TRAIN_BATCHES" : n_batch,
-                                    }
-                                    targets = get_targets(sub, fea)
-                                    print("Loading Data")
-                                    data, vocab, startwords, charlens = load_data(targets)
-                                    savefile = "{}-{}-{}-{}-{}-{}-{}".format(
-                                        sub,
-                                        fea,
-                                        config["lr_rate"],
-                                        config["num_layers"],
-                                        config["batch_size"],
-                                        config["NUM_TRAIN_BATCHES"],
-                                        config["time_steps"],
-                                    )
-                                    generate(targets, config, data, vocab, startwords, charlens, savefile)
     else:
-        print "Specify test or batch"
+        config = {
+            "lr_rate" : float(sys.argv[1]),
+            "lstm_size" : 128,
+            "num_layers" : int(sys.argv[2]),
+            "batch_size" : int(sys.argv[3]),
+            "time_steps" : int(sys.argv[4]),
+            "NUM_TRAIN_BATCHES" : int(sys.argv[5]),
+        }
+        subreddits = [sys.argv[6]]
+        features = [sys.argv[7]]
+        targets = get_targets(subreddits, features)
+        print("Targeting {} Files".format(len(targets)))
+
+        print("Loading Data")
+        data, vocab, startwords, charlens = load_data(targets)
+        savefile = "{}-{}-{}-{}-{}-{}-{}".format(
+            sys.argv[6],
+            sys.argv[7],
+            config["lr_rate"],
+            config["num_layers"],
+            config["batch_size"],
+            config["NUM_TRAIN_BATCHES"],
+            config["time_steps"],
+        )
+        generate(targets, config, data, vocab, startwords, charlens, savefile)
