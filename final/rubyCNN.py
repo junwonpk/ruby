@@ -21,12 +21,12 @@ def getConfig():
     config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"] or config["addTime2"]
     config["learningRates"] = [0.005] * 2 + [0.003] * 2 + [0.002] * 2 + [0.001] * 2 + [0.0005] * 2
     config["dropoutKeepProb"] = 0.9
-    config["numTrain"] = 200000
-    config["numDev"] = 40000
+    config["numTrain"] = 2262322
+    config["numDev"] = 282897
     config["numEpochs"] = len(config["learningRates"])
     config["predictScore"] = False
-    config["filterSizes"] = [1, 2, 3]
-    config["numFilters"] = 100
+    config["filterSizes"] = [1, 2, 3, 4]
+    config["numFilters"] = 20
     config["layer2Units"] = 64
     config["lambda"] = None
 
