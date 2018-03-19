@@ -1,6 +1,8 @@
+import collections
 import datetime
 import json
 import math
+import numpy as np
 import sys
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
@@ -124,21 +126,21 @@ class Stats():
             buckets.append(bucketsC[i] + bucketsI[i])
         return buckets
 
-def examinePredictions(filename, skip):
+def examinePredictions(filename, skip, vocab=None, allAlphas=None):
     print "Processing {}".format(filename)
-    sid = SentimentIntensityAnalyzer()
 
     with open(filename, "r") as inFile:
         for i, line in enumerate(inFile, 1):
             if i <= skip:
                 continue
             comment = json.loads(line)
-            if (comment["num_child_comments"] == 0 and comment["prediction"] == 0) or \
-               (comment["num_child_comments"] >= 1 and comment["prediction"] == 1):
-                continue
+            # if (comment["num_child_comments"] == 0 and comment["prediction"] == 0) or \
+            #    (comment["num_child_comments"] >= 1 and comment["prediction"] == 1):
+            #     continue
+            alphas = allAlphas[i -1]
+            top5 = reversed(sorted(range(len(alphas)), key=lambda j: alphas[j])[-5:])
+            top5words = [vocab[comment['body_t'][j]] for j in top5 if j < len(comment['body_t'])]
 
-            pss = sid.polarity_scores(comment['parent_comment']) 
-            ss = sid.polarity_scores(comment['body']) 
             print ""
             print "-------------------------------------"
             print comment['parent_comment']
@@ -146,16 +148,81 @@ def examinePredictions(filename, skip):
             print comment['body']
             print "-------------------------------------"
             print "Link: {} ID: {} Child Comments: {} Prediction: {} RT: {}".format(comment["link_id"], comment["id"], comment["num_child_comments"], comment["prediction"], comment["response_time_hours"])
-            print "NeuNeg: {} NegPos: {}".format(
-                    0.5 * (1 - abs(pss['compound'])) + ss['neg'],
-                    pss['neg'] + ss['pos'])
-            print pss
-            print ss
+            print top5words
             print "-------------------------------------"
             raw_input("")
 
+def sortAndPrintTop5(words):
+    wordList = []
+    for word in words:
+        wordList.append((word, words[word]))
+    wordList.sort(key=lambda pair: pair[1])
+    print list(reversed(wordList[-30:]))
+    print sum([pair[1] for pair in wordList])
+
+def calcTop5(filename, vocab, allAlphas):
+    print "Processing {}".format(filename)
+
+    blacklist = ["?", ";", "s", "you", "m", "that", "if", "is", "re", "``", "this", "they", "TOKEN_UNK", "TOKEN_PAD", ""]
+
+    wordsa0p0 = collections.defaultdict(int)
+    wordsa0p1 = collections.defaultdict(int)
+    wordsa1p0 = collections.defaultdict(int)
+    wordsa1p1 = collections.defaultdict(int)
+
+    with open(filename, "r") as inFile:
+        for i, line in enumerate(inFile):
+            comment = json.loads(line)
+
+            words = None
+            if comment["num_child_comments"] == 0:
+                if comment["prediction"] == 0:
+                    words = wordsa0p0
+                else:
+                    words = wordsa0p1
+            else:
+                if comment["prediction"] == 0:
+                    words = wordsa1p0
+                else:
+                    words = wordsa1p1
+
+            alphas = allAlphas[i]
+            sortedA = reversed(sorted(range(len(alphas)), key=lambda j: alphas[j]))
+            word = None
+            for index in sortedA:
+                if index >= len(comment["body_t"]):
+                    continue
+                vocabIndex = comment["body_t"][index]
+                if vocab[vocabIndex] in blacklist:
+                    continue
+                word = vocab[index]
+                break
+            if word is not None:
+                words[word] += 1
+
+
+            # top5words = [vocab[comment['body_t'][j]] for j in top5 if j < len(comment['body_t'])]
+            # for word in top5words:
+            #     words[word] += 1
+
+            if (i + 1) % 10000 == 0:
+                print "Processed {} lines".format(i + 1)
+
+    print "Actual 0, predicted 0"
+    sortAndPrintTop5(wordsa0p0)
+    print "Actual 0, predicted 1"
+    sortAndPrintTop5(wordsa0p1)
+    print "Actual 1, predicted 0"
+    sortAndPrintTop5(wordsa1p0)
+    print "Actual 1, predicted 1"
+    sortAndPrintTop5(wordsa1p1)
 
 if __name__ == "__main__":
+    ca0p0 = []
+    ca0p1 = []
+    ca1p0 = []
+    ca1p1 = []
+
     stats = Stats()
     with open(sys.argv[1], "r") as inFile:
         for i, line in enumerate(inFile, 1):
@@ -174,11 +241,55 @@ if __name__ == "__main__":
                 stats.addRT(comment["response_time_hours"], False)
                 stats.addChild(comment["num_child_comments"], False)
                 stats.addSIT(comment["parent_comment"], comment["body"], comment["num_child_comments"])
-
             stats.numT += 1
+
+            cList = None
+            if comment["num_child_comments"] == 0:
+                if comment["prediction"] == 0:
+                    cList = ca0p0
+                else:
+                    cList = ca0p1
+            else:
+                if comment["prediction"] == 0:
+                    cList = ca1p0
+                else:
+                    cList = ca1p1
+
+            weight = max(comment["soft"])
+            newpair = (weight, comment["body"])
+            if len(cList) < 5:
+                cList.append(newpair)
+            elif weight > cList[-1][0]:
+                cList.append(newpair)
+                cList.sort(key=lambda p: p[0], reverse=True)
+                cList.pop()
 
             if i % 10000 == 0:
                 print "Processed {} lines".format(i)
     stats.printAll()
 
-    examinePredictions(sys.argv[1], 0)
+    print "Actual 0, predicted 0"
+    for thing in ca0p0:
+        print thing
+    print "Actual 0, predicted 1"
+    for thing in ca0p1:
+        print thing
+    print "Actual 1, predicted 0"
+    for thing in ca1p0:
+        print thing
+    print "Actual 1, predicted 1"
+    for thing in ca1p1:
+        print thing
+
+
+    # print "Loading Vocab"
+    # vocab = []
+    # with open(sys.argv[1]) as inFile:
+    #     for line in inFile:
+    #         vocab.append(line.strip())
+
+    # print "Loading alphas"
+    # allAlphas = np.loadtxt(sys.argv[2])
+    # 
+    # calcTop5(sys.argv[3], vocab, allAlphas)
+    # examinePredictions(sys.argv[3], 0, vocab, allAlphas)
