@@ -14,10 +14,12 @@ def getConfig():
         "addTime": False,
         "addTime2": False,
         "addLength": True,
-        "addCommentp": False
+        "addSIT": False,
+        "addCommentp": False,
+        "addDepth": False
     }
     config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"] or config["addTime2"]
-    config["learningRates"] = [0.01] * 2 + [0.005] * 3 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5
+    config["learningRates"] = [0.01] * 2 + [0.005] * 3 + [0.003] * 5 + [0.002] * 3 + [0.001] * 2
     config["lstmUnits"] = 128
     config["attentionUnits"] = 32
     config["layer2Units"] = 32

@@ -165,7 +165,7 @@ if __name__ == "__main__":
 
     print "Processing Training Data"
     trainComments = processComments(
-        args.inDir + "/Reddit2ndTrainTime",
+        args.inDir + "/RawTrain",
         numLines,
         prevocab,
         newvocab,
@@ -174,7 +174,7 @@ if __name__ == "__main__":
 
     print "Processing Dev Data"
     devComments = processComments(
-        args.inDir + "/Reddit2ndDevTime",
+        args.inDir + "/RawDev",
         numLines,
         prevocab,
         None,
@@ -183,7 +183,7 @@ if __name__ == "__main__":
     if args.test:
         print "Processing Test Data"
         testComments = processComments(
-            args.inDir + "/Reddit2ndTestTime",
+            args.inDir + "/RawTest",
             numLines,
             prevocab,
             None,
@@ -200,14 +200,14 @@ if __name__ == "__main__":
     print "Vocab size: {}".format(len(vocab))
 
     print "Outputting train comments"
-    outputComments(trainComments, args.outDir + "/Reddit2ndTrainT", vocab)
+    outputComments(trainComments, args.outDir + "/ProcessedTrain", vocab)
 
     print "Outputting dev comments"
-    outputComments(devComments, args.outDir + "/Reddit2ndDevT", vocab)
+    outputComments(devComments, args.outDir + "/ProcessedDev", vocab)
 
     if args.test:
         print "Outputting test comments"
-        outputComments(testComments, args.outDir + "/Reddit2ndTestT", vocab)
+        outputComments(testComments, args.outDir + "/ProcessedTest", vocab)
 
     print "Outputting embeddings"
     np.savetxt(args.outDir + "/embed.txt", embed)
