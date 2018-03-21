@@ -23,7 +23,7 @@ def getConfig():
     config["numClasses"] = 2
     config["dropoutKeepProb"] = 0.9
     config["numTrain"] = 200000
-    config["numDev"] = 40000
+    config["numDev"] = 40
     config["numEpochs"] = len(config["learningRates"])
 
     # Junk.
@@ -291,6 +291,6 @@ if __name__ == "__main__":
 
     print "Outputting"
     utils.labelCommentsWithPredictions(
-        args.inDir + "/Reddit2ndDevT",
+        args.inDir + "/ProcessedDev",
         args.outPrefix + "Pred.json",
         devPredictions)
