@@ -23,7 +23,7 @@ def getConfig():
     config["layer2Units"] = 32
     config["dropoutKeepProb"] = 0.9
     config["numTrain"] = 200000
-    config["numDev"] = 40
+    config["numDev"] = 40000
     config["numEpochs"] = len(config["learningRates"])
     config["predictScore"] = False
 
