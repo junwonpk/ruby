@@ -1,5 +1,5 @@
 git filter-branch -f --env-filter '
-echo $GIT_COMMITTER_EMAIL
+echo $GIT_AUTHOR_EMAIL
 OLD_EMAIL="yhjw88@gmail.com"
 CORRECT_NAME="Junwon Park"
 CORRECT_EMAIL="junwonpk@stanford.edu"
