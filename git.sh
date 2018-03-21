@@ -1,4 +1,4 @@
-git filter-branch --env-filter '
+git filter-branch -f --env-filter '
 echo $GIT_AUTHOR_EMAIL
 OLD_EMAIL="john@Ruby2.nfwnhrqpw3tepcqoskly4pbn4e.jx.internal.cloudapp.net"
 CORRECT_NAME="Junwon Park"
