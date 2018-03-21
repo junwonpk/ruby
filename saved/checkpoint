@@ -1,2 +1,2 @@
-model_checkpoint_path: "model.ckpt"
-all_model_checkpoint_paths: "model.ckpt"
+model_checkpoint_path: "todayilearned-nc30-0.003-2-32-10000-10model.ckpt"
+all_model_checkpoint_paths: "todayilearned-nc30-0.003-2-32-10000-10model.ckpt"

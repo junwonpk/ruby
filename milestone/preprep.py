@@ -1,46 +1,72 @@
 import argparse
-import collections
 import json
 import nltk
 import numpy as np
-import sys
+import re
 
 # TODO: Uses too much RAM, can't go past 300,000 comments likely, will fix later
-# TODO: Currently only supports a value of 1 for MIN_FREQ.
-MIN_FREQ = 1
+MIN_FREQ = 2
 TOKEN_PAD = "TOKEN_PAD"
 TOKEN_UNK = "TOKEN_UNK"
 
-def process_comment(comment, vocab, frequencies):
+def process_comment(comment, prevocab, newvocab, frequencies):
     processedComment = []
     for word in nltk.word_tokenize(comment):
         word = process_word(word)
-        if word not in vocab:
-            vocab[word] = np.random.randn(len(vocab[TOKEN_PAD]))
-            frequencies[word] = 0
-        frequencies[word] += 1
         processedComment.append(word)
+
+        if word in prevocab:
+            frequencies[word] += MIN_FREQ
+        elif newvocab is None:
+            continue
+        elif word in newvocab:
+            frequencies[word] += 1
+        else:
+            newvocab[word] = np.random.randn(len(prevocab[TOKEN_PAD]))
+            frequencies[word] = 1
     return processedComment
 
 def process_word(word):
-    if 'http' in word:
-        return 'TOKEN_HTTP_URL'
+    # Take care of special symbols by themselves.
+    if word == "*" or word == "=" or word == ".":
+        return word
+    if word == ".." or word == "...":
+        return "..."
+    if word == "'":
+        return word
+
+    # Special link words.
+    http = re.compile('/*/')
     if 'ftp' in word:
         return 'TOKEN_FTP_URL'
     if '@' in word:
         return 'TOKEN_AT_REFERENCE'
-    word = word.lower()
+    if 'http' in word or http.search(word) or '=' in word:
+        return 'TOKEN_HTTP_URL'
+
+    # Numbers.
+    digits = re.compile('\d')
+    if digits.search(word):
+        return 'TOKEN_NUMBER'
+
+    # Other things.
+    if word.startswith("'"):
+        word = word[1:]
+    if word.endswith("'"):
+        word = word[:-1]
+
+    word = word.lower().replace("*", "").replace(".", "")
     return word
 
-def processComments(filename, numLines, vocab, frequencies):
+def processComments(filename, numLines, prevocab, newvocab, frequencies):
     comments = []
     with open(filename, "r") as inFile:
         for i, line in enumerate(inFile, 1):
             if len(comments) >= numLines:
                 break
             comment = json.loads(line)
-            comment["body_t"] = process_comment(comment["body"], vocab, frequencies)
-            comment["parent_comment_t"] = process_comment(comment["parent_comment"], vocab, frequencies)
+            comment["body_t"] = process_comment(comment["body"], prevocab, newvocab, frequencies)
+            comment["parent_comment_t"] = process_comment(comment["parent_comment"], prevocab, newvocab, frequencies)
             comments.append(comment)
 
             if i % 10000 == 0:
@@ -64,7 +90,7 @@ def cleanFrequencies(vocab, frequencies):
         embed.append(vocab[word])
         vocab[word] = len(embed) - 1
 
-    return vocab, np.asarray(embed)
+    return np.asarray(embed)
 
 def wordToIndex(word, vocab):
     if word in vocab:
@@ -72,14 +98,23 @@ def wordToIndex(word, vocab):
     return vocab[TOKEN_UNK]
 
 def outputComments(comments, filename, vocab):
+    unknownCounter = 0
     with open(filename, "w") as outFile:
         for i, comment in enumerate(comments, 1):
             comment["body_t"] = [wordToIndex(word, vocab) for word in comment["body_t"]]
             comment["parent_comment_t"] = [wordToIndex(word, vocab) for word in comment["parent_comment_t"]]
             outFile.write(json.dumps(comment) + "\n")
 
+            for wordNum in comment["body_t"]:
+                if wordNum == vocab[TOKEN_UNK]:
+                    unknownCounter += 1
+            for wordNum in comment["parent_comment_t"]:
+                if wordNum == vocab[TOKEN_UNK]:
+                    unknownCounter += 1
+
             if i % 10000 == 0:
                 print "Outputted {} lines".format(i)
+    print "Encountered {} unknown words".format(unknownCounter)
 
 def outputVocab(vocab, filename):
     vocabList = [TOKEN_UNK] * len(embed)
@@ -87,6 +122,11 @@ def outputVocab(vocab, filename):
         vocabList[index] = word
     with open(filename, "w") as outFile:
         for word in vocabList:
+            outFile.write(word.encode('utf-8') + "\n")
+
+def outputNewWords(newWords, filename):
+    with open(filename, "w") as outFile:
+        for word in newWords:
             outFile.write(word.encode('utf-8') + "\n")
 
 # Builds a vocab.
@@ -119,29 +159,43 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--numLines", help="Number of lines of train/dev/test to process", type=int, default=-1)
     args = parser.parse_args()
 
-    if args.test:
-        print "Test set not supported yet"
-        sys.exit(1)
     numLines = args.numLines if args.numLines >= 0 else float('inf')
-
-    vocab, frequencies = loadWordVectors(args.wordVectors)
+    prevocab, frequencies = loadWordVectors(args.wordVectors)
+    newvocab = {}
 
     print "Processing Training Data"
     trainComments = processComments(
         args.inDir + "/Reddit2ndTrainTime",
         numLines,
-        vocab,
+        prevocab,
+        newvocab,
         frequencies)
+    print "Potential new vocab: {}".format(len(newvocab))
 
     print "Processing Dev Data"
     devComments = processComments(
         args.inDir + "/Reddit2ndDevTime",
         numLines,
-        vocab,
+        prevocab,
+        None,
         frequencies)
 
+    if args.test:
+        print "Processing Test Data"
+        testComments = processComments(
+            args.inDir + "/Reddit2ndTestTime",
+            numLines,
+            prevocab,
+            None,
+            frequencies)
+
     print "Cleaning frequencies"
-    vocab, embed = cleanFrequencies(vocab, frequencies)
+    for word in newvocab:
+        assert word not in prevocab
+        prevocab[word] = newvocab[word]
+    newvocab = None
+    embed = cleanFrequencies(prevocab, frequencies)
+    vocab = prevocab
     assert len(vocab) == len(embed)
     print "Vocab size: {}".format(len(vocab))
 
@@ -150,6 +204,10 @@ if __name__ == "__main__":
 
     print "Outputting dev comments"
     outputComments(devComments, args.outDir + "/Reddit2ndDevT", vocab)
+
+    if args.test:
+        print "Outputting test comments"
+        outputComments(testComments, args.outDir + "/Reddit2ndTestT", vocab)
 
     print "Outputting embeddings"
     np.savetxt(args.outDir + "/embed.txt", embed)

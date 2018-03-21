@@ -1,4 +1,10 @@
-data*
+saved
+results
+target
+*.tar.gz
+*.zip
+parent
+data
 *.png
 *.txt
 glove*.txt

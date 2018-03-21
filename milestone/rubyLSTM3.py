@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import tensorflow as tf
+import time
 
 import utils
 
@@ -8,25 +9,26 @@ import utils
 def getConfig():
     config = {
         "maxDocLength": 250,  # Max is 2191
-        "batchSize": 256,
+        "batchSize": 64,
         "addRT": True,
         "addTime": False,
         "addTime2": False,
         "addLength": True,
         "addCommentp": False
     }
-    config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"]
-    config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5
-    config["lstmUnits"] = 64
-    config["attentionUnits"] = None
+    config["addCommentf"] = config["addRT"] or config["addTime"] or config["addLength"] or config["addTime2"]
+    config["learningRates"] = [0.01] * 2 + [0.005] * 3 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5
+    config["lstmUnits"] = 128
+    config["attentionUnits"] = 32
     config["layer2Units"] = 32
-    config["numClasses"] = 2
     config["dropoutKeepProb"] = 0.9
     config["numTrain"] = 200000
     config["numDev"] = 40
     config["numEpochs"] = len(config["learningRates"])
+    config["predictScore"] = False
 
     # Junk.
+    # config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
     # config["learningRates"] = [0.01] * 5 + [0.005] * 5 + [0.003] * 5 + [0.002] * 5 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
     # config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5 + [0.0003] * 5 + [0.0001] * 5
     # config["learningRates"] = [0.01] * 3 + [0.005] * 2 + [0.003] * 5 + [0.002] * 10 + [0.001] * 5 + [0.0005] * 5
@@ -52,7 +54,7 @@ def attention(inputs, attention_size, time_major=False, return_alphas=False):
     b_omega = tf.Variable(tf.random_normal([attention_size], stddev=0.1))
     u_omega = tf.Variable(tf.random_normal([attention_size], stddev=0.1))
 
-    with tf.name_scope('v'):
+    with tf.variable_scope('v'):
         # Applying fully connected layer with non-linear activation to each of the B*T timestamps;
         #  the shape of `v` is (B,T,D)*(D,A)=(B,T,A), where A=attention_size
         v = tf.tanh(tf.tensordot(inputs, w_omega, axes=1) + b_omega)
@@ -70,11 +72,11 @@ def attention(inputs, attention_size, time_major=False, return_alphas=False):
         return output, alphas
 
 def getAttentionLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
-    with tf.name_scope(scope):
+    with tf.variable_scope(scope):
         # LSTM
         seqLengths = tf.reduce_sum(masks, axis=1)
         lstmCell = tf.contrib.rnn.BasicLSTMCell(config["lstmUnits"])
-        lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
+        # lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
         cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, sequence_length=seqLengths, dtype=tf.float32, scope=scope)
 
         # Attention layer
@@ -86,10 +88,10 @@ def getAttentionLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
         return dropoutOutputs
 
 def getLSTMOutputs(embeddings, masks, dropoutKeepProb, scope, config):
-    with tf.name_scope(scope):
+    with tf.variable_scope(scope):
         # LSTM
         lstmCell = tf.contrib.rnn.BasicLSTMCell(config["lstmUnits"])
-        lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
+        # lstmCell = tf.contrib.rnn.DropoutWrapper(cell=lstmCell, output_keep_prob=dropoutKeepProb)
         cellOutputs, _ = tf.nn.dynamic_rnn(lstmCell, embeddings, dtype=tf.float32, scope=scope)
 
         # Output to pred
@@ -111,7 +113,7 @@ def train(embed, trainData, devData, config):
     learningRate = tf.placeholder(tf.float32)
 
     # Create embedding tranform.
-    with tf.name_scope("embedding"):
+    with tf.variable_scope("embedding"):
         E = tf.get_variable("E", initializer=embed, trainable=False)
         embeddings = tf.nn.embedding_lookup(E, comments)
         embeddingps = tf.nn.embedding_lookup(E, commentps)
@@ -139,8 +141,11 @@ def train(embed, trainData, devData, config):
         initializer=tf.constant_initializer(0.1))
     layer1Output = tf.nn.relu(tf.matmul(lstmOutputs, W1) + b1)
 
+    # Dropout
+    layer1Droutput = tf.nn.dropout(layer1Output, dropoutKeepProb)
+
     # layer 2 softmax
-    with tf.name_scope("layer2"):
+    with tf.variable_scope("layer2"):
         W2 = tf.get_variable(
             "W2",
             shape=[config["layer2Units"], config["numClasses"]],
@@ -149,7 +154,7 @@ def train(embed, trainData, devData, config):
             "b2",
             shape=[config["numClasses"]],
             initializer=tf.constant_initializer(0.1))
-    prediction = tf.matmul(layer1Output, W2) + b2
+    prediction = tf.matmul(layer1Droutput, W2) + b2
 
     # Accuracy
     prediction2 = tf.argmax(prediction, 1)
@@ -162,7 +167,7 @@ def train(embed, trainData, devData, config):
     optimizer = tf.train.AdamOptimizer(learning_rate=learningRate).minimize(loss)
 
     # Saver
-    # saver = tf.train.Saver()
+    saver = tf.train.Saver()
 
     # Collect Info.
     losses = []
@@ -176,12 +181,14 @@ def train(embed, trainData, devData, config):
 
     with tf.Session() as sess:
         # Variable Initialization.
-        # if saveIn:
-        #     saver.restore(sess, saveIn)
-        # else:
-        sess.run(tf.global_variables_initializer())
+        if config["restoreDir"]:
+            saver.restore(sess, config["restoreDir"])
+        else:
+            sess.run(tf.global_variables_initializer())
 
         for epoch in range(config["numEpochs"]):
+            start = time.time()
+
             # Training.
             epochLoss = 0
             epochAccuracy = 0
@@ -235,15 +242,18 @@ def train(embed, trainData, devData, config):
                 epochAccuracy += batchAccuracy * batchSize
             devAccuracies.append(epochAccuracy / float(config["numDev"]))
             print "Dev Accuracy: {}".format(devAccuracies[-1])
+            print epochConfusionMatrix
 
             # Save best dev 
             if bestDevIndex is None or devAccuracies[-1] > devAccuracies[bestDevIndex]:
                 bestDevIndex = len(devAccuracies) - 1
                 bestDevPredictions = epochPredictions
                 bestDevConfusionMatrix = epochConfusionMatrix
-
-            # savePath = saver.save(sess, saveOut)
-            # print "Model saved at {}".format(savePath)
+                if config["saveDir"]:
+                    savePath = saver.save(sess, config["saveDir"])
+                    print "Variables saved at {}".format(savePath)
+            print "Epoch Time: {0:.4f} s".format(time.time() - start)
+            print ""
 
     # Print out summary.
     print "Best Dev of {} at epoch {}, train acc: {}, train loss: {}".format(
@@ -260,6 +270,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LSTM model")
     parser.add_argument("-i", "--inDir", help="Input directory of train/dev/test", required=True)
     parser.add_argument("-o", "--outPrefix", help="Output prefix for plot", required=True)
+    parser.add_argument("-s", "--saveDir", help="Directory to save to", required=False)
+    parser.add_argument("-r", "--restoreDir", help="Directory to restore from", required=False)
     args = parser.parse_args()
 
     print "Loading config"
@@ -269,19 +281,22 @@ if __name__ == "__main__":
     embed = np.loadtxt(args.inDir + "/embed.txt", dtype=np.float32)
 
     print "Loading Training Data"
-    trainData = utils.loadComments(args.inDir + "/ProcessedDev", config["numTrain"], config)
+    trainData = utils.loadComments(args.inDir + "/ProcessedTrain", config["numTrain"], config)
 
     print "Loading Dev Data"
-    devData = utils.loadComments(args.inDir + "/ProcessedTrain", config["numDev"], config)
+    devData = utils.loadComments(args.inDir + "/ProcessedDev", config["numDev"], config)
 
     # Additional configs
     config["vocabSize"] = len(embed)
     config["embedDim"] = len(embed[0])
+    config["numClasses"] = len(trainData[5][0])
     config["numCommentfs"] = len(trainData[4][0])
     config["numLSTMOutputs"] = config["lstmUnits"] + config["numCommentfs"]
     if config["addCommentp"]:
         config["numLSTMOutputs"] += config["lstmUnits"]
     utils.printConfig(config)
+    config["saveDir"] = args.saveDir
+    config["restoreDir"] = args.restoreDir
  
     print "Training"
     losses, trainAccuracies, devAccuracies, devPredictions = train(embed, trainData, devData, config)
