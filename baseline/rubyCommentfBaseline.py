@@ -1,5 +1,6 @@
 # Ruby RT Baseline
 # How well does response time predict further responses?
+import datetime
 import json
 import numpy as np
 from sklearn.linear_model import LogisticRegression
@@ -56,8 +57,16 @@ def loadComments(filename, numComments, capBuckets=False):
             commentfs = []
             # TODO: Do stuff here to test different features
             commentfs.append(comment["response_time_hours"])
-            commentfs.append(abs(comment["score"]))
+            # commentfs.append(abs(comment["score"]))
             # commentfs.append(comment["time_of_day"])
+            created = datetime.datetime.fromtimestamp(
+                comment["created_utc"]
+            )
+            value = created.time().hour
+            timeVec = [0] * 24
+            timeVec[value] = 1
+            commentfs.extend(timeVec)
+
             # commentfs.append(comment["weekday"])
 
             # END
@@ -71,11 +80,11 @@ if __name__ == "__main__":
     print "Loading Training Data"
     trainComments, trainLabels = loadComments(
         sys.argv[1] + "/Reddit2ndTrainTime",
-        10000)
+        200000)
 
     print "Loading Dev Data"
     devComments, devLabels = loadComments(
         sys.argv[1] + "/Reddit2ndDevTime",
-        2000)
+        40000)
 
     softmaxRegression(trainComments, trainLabels, devComments, devLabels)
